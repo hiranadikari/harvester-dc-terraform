@@ -1,0 +1,34 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+_override.tf
+_override.tf.json
+.terraformrc
+terraform.rc
+
+# Secrets and Sensitive Data
+secrets/
+*.secret.tfvars
+cluster_dns
+rancher_password
+bootstrap_key
+*.pem
+*.key
+*.pub
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Harvester Provider Development
+terraform-provider-harvester/
+bin/
+pkg/
+vendor/
