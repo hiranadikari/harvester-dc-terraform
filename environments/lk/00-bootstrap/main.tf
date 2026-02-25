@@ -19,6 +19,7 @@ module "rancher_bootstrap" {
   cluster_network_name = "mgmt"
   cluster_vlan_id      = 100
   ubuntu_image_id      = data.harvester_image.ubuntu20.id
+  vm_memory            = var.vm_memory
 
   vm_password            = var.vm_password
   rancher_hostname       = "rancher.lk.internal"
@@ -28,6 +29,10 @@ module "rancher_bootstrap" {
   ippool_gateway = "192.168.10.1"
   ippool_start   = "192.168.10.200"
   ippool_end     = "192.168.10.250"
+}
+
+output "rancher_hostname" {
+  value = module.rancher_bootstrap.rancher_hostname
 }
 
 output "rancher_url" {

@@ -57,7 +57,7 @@ resource "harvester_virtualmachine" "rancher_server" {
   restart_after_update = true
 
   cpu    = 4
-  memory = "16Gi"
+  memory = "8Gi"
 
   run_strategy = "RerunOnFailure"
   machine_type = "q35"

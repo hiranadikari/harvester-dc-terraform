@@ -28,7 +28,7 @@ resource "harvester_virtualmachine" "pg_nodes" {
 
   run_strategy = "RerunOnFailure"
   machine_type = "q35"
-  
+
   ssh_keys = [var.ssh_key_name]
 
   network_interface {
@@ -38,11 +38,11 @@ resource "harvester_virtualmachine" "pg_nodes" {
   }
 
   disk {
-    name       = "rootdisk"
-    type       = "disk"
-    size       = var.disk_size
-    bus        = "virtio"
-    boot_order = 1
+    name        = "rootdisk"
+    type        = "disk"
+    size        = var.disk_size
+    bus         = "virtio"
+    boot_order  = 1
     image       = var.image_name
     auto_delete = true
   }
@@ -51,7 +51,7 @@ resource "harvester_virtualmachine" "pg_nodes" {
     user_data = templatefile("${path.module}/templates/pg-init.yaml.tpl", {
       pg_password = random_password.pg_password.result,
       is_primary  = count.index == 0 ? true : false,
-      primary_ip  = count.index == 0 ? "127.0.0.1" : "\${primary_floating_ip_here}" # Example logic for replication
+      primary_ip  = count.index == 0 ? "127.0.0.1" : "$${primary_floating_ip_here}" # Example logic for replication
     })
     network_data = ""
   }

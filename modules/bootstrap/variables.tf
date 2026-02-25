@@ -1,3 +1,9 @@
+variable "vm_memory" {
+  type        = string
+  description = "Memory size for the Rancher VM (e.g. '8Gi')"
+  default     = "8Gi"
+}
+
 variable "vm_name" {
   type        = string
   description = "Name of the Rancher server VM"

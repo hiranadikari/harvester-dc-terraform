@@ -1,34 +1,52 @@
-terraform {
-  backend "s3" {
-    bucket         = "platform-tf-state"
-    key            = "lk/01-management/terraform.tfstate"
-    region         = "ap-south-1" # Or your appropriate region
-    dynamodb_table = "terraform-locks"
-    encrypt        = true
+provider "rancher2" {
+  api_url   = var.rancher_url
+  bootstrap = true
+  insecure  = true
+}
+
+# 0. Pull Phase 0 (Bootstrap) state for dynamic resource discovery
+data "terraform_remote_state" "bootstrap" {
+  backend = "local"
+
+  config = {
+    path = "../00-bootstrap/terraform.tfstate"
   }
 }
 
-# 1. Provide Harvester or Rancher details (derived from 00-bootstrap)
-# data "terraform_remote_state" "bootstrap" {
-#   backend = "local" # or whatever 00-bootstrap uses
-#   config  = { path = "../00-bootstrap/terraform.tfstate" }
-# }
+# 1. Bootstrap Rancher (Reset admin password and get API token)
+resource "rancher2_bootstrap" "admin" {
+  initial_password = var.bootstrap_password
+  password         = var.admin_password
+}
 
-# provider "rancher2" {
-#   api_url  = data.terraform_remote_state.bootstrap.outputs.rancher_url
-#   token_key = var.rancher_admin_token
-#   insecure = true
-# }
+# 2. Configure a separate provider instance for authenticated calls
+provider "rancher2" {
+  alias     = "admin"
+  api_url   = var.rancher_url
+  token_key = rancher2_bootstrap.admin.token
+  insecure  = true
+}
 
-# 2. Call modules for Management Tier
-# module "networking" {
-#   source = "../../../modules/management/networking"
-# }
+# 3. Configure Harvester Provider for direct settings automation
+provider "harvester" {
+  kubeconfig = var.harvester_kubeconfig_path
+}
 
-# module "storage" {
-#   source = "../../../modules/management/storage"
-# }
+# 4. Configure Kubernetes Provider for Harvester system patching
+provider "kubernetes" {
+  config_path = var.harvester_kubeconfig_path
+}
 
-# module "rbac" {
-#   source = "../../../modules/management/rbac"
-# }
+# 5. Call Harvester Integration module
+module "harvester_integration" {
+  source = "../../../modules/management/harvester-integration"
+  providers = {
+    rancher2   = rancher2.admin
+    harvester  = harvester
+    kubernetes = kubernetes
+  }
+  harvester_kubeconfig   = file(var.harvester_kubeconfig_path)
+  harvester_cluster_name = var.harvester_cluster_name
+  rancher_hostname       = data.terraform_remote_state.bootstrap.outputs.rancher_hostname
+  rancher_lb_ip          = data.terraform_remote_state.bootstrap.outputs.rancher_lb_ip
+}
