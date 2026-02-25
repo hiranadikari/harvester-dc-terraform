@@ -22,6 +22,7 @@ bootstrap_key
 *.pem
 *.key
 *.pub
+*.kubeconfig
 
 # OS Files
 .DS_Store
@@ -37,6 +38,7 @@ vendor/
 harvester/
 rancher/
 terraform-provider-rancher2/
+harvester-dc-terraform/
 
 # AI assistant artifacts (Antigravity brain)
 brain/
