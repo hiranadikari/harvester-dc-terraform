@@ -89,6 +89,7 @@ resource "rancher2_cluster" "harvester_hci" {
 resource "null_resource" "apply_harvester_registration" {
   triggers = {
     registration_command = rancher2_cluster.harvester_hci.cluster_registration_token[0].command
+    kubeconfig           = var.harvester_kubeconfig
   }
 
   provisioner "local-exec" {
@@ -100,6 +101,21 @@ resource "null_resource" "apply_harvester_registration" {
 
     environment = {
       KUBECONFIG_CONTENT = var.harvester_kubeconfig
+    }
+  }
+
+  # On destroy: remove the cattle-cluster-agent from Harvester so re-create is clean
+  provisioner "local-exec" {
+    when    = destroy
+    command = <<EOT
+      echo "$KUBECONFIG_CONTENT" > harvester_kubeconfig.yaml
+      kubectl --kubeconfig harvester_kubeconfig.yaml -n cattle-system delete deployment cattle-cluster-agent --ignore-not-found
+      kubectl --kubeconfig harvester_kubeconfig.yaml -n cattle-system delete secret cattle-credentials --ignore-not-found || true
+      rm harvester_kubeconfig.yaml
+    EOT
+
+    environment = {
+      KUBECONFIG_CONTENT = self.triggers.kubeconfig
     }
   }
 
