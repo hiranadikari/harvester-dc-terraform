@@ -115,7 +115,7 @@ resource "null_resource" "apply_harvester_registration" {
     EOT
 
     environment = {
-      KUBECONFIG_CONTENT = self.triggers.kubeconfig
+      KUBECONFIG_CONTENT = lookup(self.triggers, "kubeconfig", "")
     }
   }
 
