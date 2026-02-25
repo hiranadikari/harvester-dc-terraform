@@ -32,3 +32,11 @@ terraform-provider-harvester/
 bin/
 pkg/
 vendor/
+
+# Separate repositories colocated in the same parent directory
+harvester/
+rancher/
+terraform-provider-rancher2/
+
+# AI assistant artifacts (Antigravity brain)
+brain/
