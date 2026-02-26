@@ -160,4 +160,3 @@ resource "harvester_ippool" "rancher_ips" {
 # Because the user explicitly pointed out their cloud-init script gracefully handled Helm inside Harvester, we will pivot to that!
 # The user's cloud-init handles cert-manager and rancher installations.
 # Therefore, Phase 1 and 2 will connect directly to the resulting Rancher URL.
-

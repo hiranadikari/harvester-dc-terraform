@@ -20,3 +20,9 @@ variable "rancher_admin_password" {
   description = "Bootstrap password for Rancher Admin user"
   sensitive   = true
 }
+
+variable "image_url" {
+  type        = string
+  description = "URL of the Ubuntu 22.04 LTS image"
+  default     = "https://cloud-images.ubuntu.com/jammy/20260219/jammy-server-cloudimg-amd64.img"
+}

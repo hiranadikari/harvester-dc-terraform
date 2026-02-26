@@ -7,6 +7,14 @@ terraform {
   }
 }
 
+resource "harvester_image" "ubuntu_focal" {
+  name         = "ubuntu-jammy-jellyfish"
+  namespace    = "default"
+  display_name = "Ubuntu 22.04.05 LTS"
+  source_type  = "download"
+  url          = var.image_url
+}
+
 provider "harvester" {
   kubeconfig = var.harvester_kubeconfig
 }
@@ -18,7 +26,7 @@ module "rancher_bootstrap" {
   harvester_namespace  = "default"
   cluster_network_name = "mgmt"
   cluster_vlan_id      = 100
-  ubuntu_image_id      = data.harvester_image.ubuntu20.id
+  ubuntu_image_id      = harvester_image.ubuntu_focal.id
   vm_memory            = var.vm_memory
 
   vm_password            = var.vm_password
@@ -29,16 +37,4 @@ module "rancher_bootstrap" {
   ippool_gateway = "192.168.10.1"
   ippool_start   = "192.168.10.200"
   ippool_end     = "192.168.10.250"
-}
-
-output "rancher_hostname" {
-  value = module.rancher_bootstrap.rancher_hostname
-}
-
-output "rancher_url" {
-  value = "https://${module.rancher_bootstrap.rancher_hostname}"
-}
-
-output "rancher_lb_ip" {
-  value = module.rancher_bootstrap.rancher_lb_ip
 }

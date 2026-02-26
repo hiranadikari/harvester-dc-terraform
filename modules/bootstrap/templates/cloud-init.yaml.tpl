@@ -11,59 +11,86 @@ ssh_authorized_keys:
 packages:
   - qemu-guest-agent
   - curl
+  - iptables
 
 runcmd:
   - systemctl enable --now qemu-guest-agent
-  # Install RKE2
-  - curl -sfL https://get.rke2.io | sh -
-  - mkdir -p /etc/rancher/rke2
+  - sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="console=ttyS0,115200n8 console=tty0"/' /etc/default/grub
+  - update-grub
+
+  - until ping -c 1 8.8.8.8; do sleep 5; done
+
   - |
-    cat <<EOF > /etc/rancher/rke2/config.yaml
-    token: static-bootstrap-token-123
+    (
+      echo "--- Starting RKE2 and Rancher Deployment ---"
+      
+      # 1. Install RKE2
+      curl -sfL https://get.rke2.io | sh -
+      mkdir -p /etc/rancher/rke2
+
+      cat <<EOF > /etc/rancher/rke2/config.yaml
+      token: static-bootstrap-token-123
+      $( [ "${node_index}" != "0" ] && echo "server: https://${lb_ip}:9345" )
     EOF
-  - |
-    if [ "${node_index}" -eq "0" ]; then
-      echo "server: https://127.0.0.1:9345" >> /etc/rancher/rke2/config.yaml
-    else
-      # Wait for the first node's Rancher/RKE2 to be ready via LB
-      echo "server: https://${lb_ip}:9345" >> /etc/rancher/rke2/config.yaml
-    fi
-  - systemctl enable rke2-server.service
-  - systemctl start rke2-server.service
-  # Wait for RKE2 to be ready and config file to exist
-  - until [ -f /etc/rancher/rke2/rke2.yaml ]; do sleep 5; done
-  - export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
-  - until /var/lib/rancher/rke2/bin/kubectl get nodes; do sleep 5; done
-  # Install kubectl binary to /usr/local/bin
-  - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-  - install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-  # Setup kubeconfig for the default user (ubuntu)
-  - mkdir -p /home/ubuntu/.kube
-  - cp /etc/rancher/rke2/rke2.yaml /home/ubuntu/.kube/config
-  - chown ubuntu:ubuntu /home/ubuntu/.kube/config
-  - chmod 600 /home/ubuntu/.kube/config
-  # Install Helm
-  - curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-  # Add Rancher Helm Repo
-  - /usr/local/bin/helm repo add rancher-stable https://releases.rancher.com/server-charts/stable --kubeconfig /etc/rancher/rke2/rke2.yaml
-  - /usr/local/bin/helm repo update --kubeconfig /etc/rancher/rke2/rke2.yaml
-  # Create Namespace
-  - /var/lib/rancher/rke2/bin/kubectl create namespace cattle-system
-  # Install Cert-Manager (Required for Rancher)
-  - /var/lib/rancher/rke2/bin/kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.1/cert-manager.yaml
-  # Robust wait for Cert-Manager components
-  - /var/lib/rancher/rke2/bin/kubectl wait --for=condition=available --timeout=600s deployment/cert-manager -n cert-manager
-  - /var/lib/rancher/rke2/bin/kubectl wait --for=condition=available --timeout=600s deployment/cert-manager-webhook -n cert-manager
-  - /var/lib/rancher/rke2/bin/kubectl wait --for=condition=available --timeout=600s deployment/cert-manager-cainjector -n cert-manager
-  # Install Rancher with a retry loop (Only on first node to avoid race conditions)
-  - |
-    if [ "${node_index}" -eq "0" ]; then
-      for i in {1..10}; do
-        /usr/local/bin/helm install rancher rancher-stable/rancher \
-          --namespace cattle-system \
-          --set hostname=${cluster_dns} \
-          --set bootstrapPassword=${rancher_password} \
-          --set replicas=${node_count} \
-          --kubeconfig /etc/rancher/rke2/rke2.yaml && break || sleep 30
-      done
-    fi
+
+      systemctl enable rke2-server.service
+      systemctl start rke2-server.service
+
+      # 2. IMMEDIATE kubectl download
+      echo "Downloading kubectl..."
+      curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+      install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+      # 3. Wait for Config & API
+      echo "Waiting for rke2.yaml..."
+      until [ -f /etc/rancher/rke2/rke2.yaml ]; do sleep 10; done
+      export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+      
+      # 4. Setup User Context
+      mkdir -p /home/ubuntu/.kube
+      cp /etc/rancher/rke2/rke2.yaml /home/ubuntu/.kube/config
+      chown -R ubuntu:ubuntu /home/ubuntu/.kube
+      chmod 600 /home/ubuntu/.kube/config
+
+      # 5. Wait for Node Readiness
+      echo "Waiting for nodes to be Ready..."
+      until /usr/local/bin/kubectl get nodes | grep -q "Ready"; do sleep 10; done
+
+      if [ "${node_index}" -eq "0" ]; then
+        echo "Initializing Rancher..."
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        /usr/local/bin/helm repo add rancher-stable https://releases.rancher.com/server-charts/stable
+        /usr/local/bin/helm repo update
+        
+        # 6. Two-Stage Ingress Wait (Corrected for DaemonSet)
+        echo "Waiting for Ingress DaemonSet existence..."
+        until /usr/local/bin/kubectl get ds rke2-ingress-nginx-controller -n kube-system; do sleep 10; done
+        
+        echo "Waiting for Ingress DaemonSet pods to be Ready..."
+        until [ "$(/usr/local/bin/kubectl get ds rke2-ingress-nginx-controller -n kube-system -o jsonpath='{.status.numberReady}')" = "$(/usr/local/bin/kubectl get ds rke2-ingress-nginx-controller -n kube-system -o jsonpath='{.status.desiredNumberScheduled}')" ]; do
+          echo "Waiting for Ingress pods... (Ready vs Desired)"
+          sleep 10
+        done
+        
+        # Settle time for the Admission Webhook Service
+        sleep 30 
+        
+        # 7. Cert-Manager
+        /usr/local/bin/kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.1/cert-manager.yaml
+        /usr/local/bin/kubectl wait --for=condition=Available --timeout=600s deployment/cert-manager-webhook -n cert-manager
+        
+        # 8. Rancher Installation Loop
+        for i in {1..10}; do
+          echo "Rancher install attempt $i..."
+          /usr/local/bin/helm upgrade --install rancher rancher-stable/rancher \
+            --namespace cattle-system \
+            --create-namespace \
+            --set hostname=${cluster_dns} \
+            --set bootstrapPassword=${rancher_password} \
+            --set replicas=${node_count} \
+            --wait && break || sleep 30
+        done
+      fi
+      echo "--- Deployment Script Finished ---"
+    ) > /var/log/rancher-install.log 2>&1 &
+    
