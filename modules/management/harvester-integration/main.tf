@@ -41,7 +41,6 @@ data "rancher2_project" "local_system" {
   name       = "System"
 }
 
-
 # 6. Install Harvester UI Extension App
 resource "rancher2_app_v2" "harvester" {
   cluster_id    = "local"
@@ -119,27 +118,16 @@ resource "null_resource" "apply_harvester_registration" {
     }
   }
 
-  depends_on = [rancher2_cluster.harvester_hci]
-}
-
-# 10. Configure Harvester Registration URL
-# This is a critical step for Harvester to reach back to Rancher
-resource "harvester_setting" "registration_url" {
-  name  = "cluster-registration-url"
-  value = rancher2_cluster.harvester_hci.cluster_registration_token[0].manifest_url
-}
-
-resource "harvester_setting" "rancher_cluster" {
-  name = "rancher-cluster"
-  value = jsonencode({
-    clusterId   = rancher2_cluster.harvester_hci.id
-    clusterName = rancher2_cluster.harvester_hci.name
-  })
+  depends_on = [
+    rancher2_cluster.harvester_hci,
+    kubernetes_config_map_v1_data.harvester_coredns_patch,
+  ]
 }
 
 # 11. Patch Harvester CoreDNS (Direct ConfigMap Fix)
-# This allows Harvester nodes and pods to resolve the internal Rancher URL by 
+# This allows Harvester nodes and pods to resolve the internal Rancher URL by
 # prepending a specific hosts block to the Corefile.
+# Must run BEFORE registration so Harvester can reach rancher.lk.internal.
 resource "kubernetes_config_map_v1_data" "harvester_coredns_patch" {
   metadata {
     name      = "rke2-coredns-rke2-coredns"
@@ -176,4 +164,24 @@ resource "kubernetes_config_map_v1_data" "harvester_coredns_patch" {
   force = true # Ensures we overwrite the manual/helm-generated Corefile
 
   depends_on = [rancher2_cluster.harvester_hci]
+}
+
+# 10. Configure Harvester Registration URL
+# This is a critical step for Harvester to reach back to Rancher.
+# Depends on the CoreDNS patch so rancher.lk.internal resolves before Harvester connects.
+resource "harvester_setting" "registration_url" {
+  name  = "cluster-registration-url"
+  value = rancher2_cluster.harvester_hci.cluster_registration_token[0].manifest_url
+
+  depends_on = [kubernetes_config_map_v1_data.harvester_coredns_patch]
+}
+
+resource "harvester_setting" "rancher_cluster" {
+  name = "rancher-cluster"
+  value = jsonencode({
+    clusterId   = rancher2_cluster.harvester_hci.id
+    clusterName = rancher2_cluster.harvester_hci.name
+  })
+
+  depends_on = [kubernetes_config_map_v1_data.harvester_coredns_patch]
 }

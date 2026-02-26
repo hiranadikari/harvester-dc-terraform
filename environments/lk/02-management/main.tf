@@ -1,9 +1,3 @@
-provider "rancher2" {
-  api_url   = var.rancher_url
-  bootstrap = true
-  insecure  = true
-}
-
 # 0. Pull Phase 0 (Bootstrap) state for dynamic resource discovery
 data "terraform_remote_state" "bootstrap" {
   backend = "local"
@@ -13,17 +7,19 @@ data "terraform_remote_state" "bootstrap" {
   }
 }
 
-# 1. Bootstrap Rancher (Reset admin password and get API token)
-resource "rancher2_bootstrap" "admin" {
-  initial_password = var.bootstrap_password
-  password         = var.admin_password
+# 1. Pull Phase 1 (Rancher Auth) state for admin token
+data "terraform_remote_state" "rancher_auth" {
+  backend = "local"
+
+  config = {
+    path = "../01-rancher-auth/terraform.tfstate"
+  }
 }
 
-# 2. Configure a separate provider instance for authenticated calls
+# 2. Configure authenticated Rancher provider using token from layer 01-rancher-auth
 provider "rancher2" {
-  alias     = "admin"
   api_url   = var.rancher_url
-  token_key = rancher2_bootstrap.admin.token
+  token_key = data.terraform_remote_state.rancher_auth.outputs.admin_token
   insecure  = true
 }
 
@@ -41,7 +37,7 @@ provider "kubernetes" {
 module "harvester_integration" {
   source = "../../../modules/management/harvester-integration"
   providers = {
-    rancher2   = rancher2.admin
+    rancher2   = rancher2
     harvester  = harvester
     kubernetes = kubernetes
   }
